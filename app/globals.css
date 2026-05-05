@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground: #f3f4f6;
+  --background: #0a0a0f;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #12121a;
+}
+::-webkit-scrollbar-thumb {
+  background: #2d2d4e;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8b5cf6;
+}
+
+/* Audio element styling */
+audio {
+  width: 100%;
+  border-radius: 8px;
+}
+
+/* Textarea resize handle color */
+textarea {
+  resize: vertical;
+}
+
+/* Dark-themed select options (Chromium) */
+select option {
+  background-color: #1a1a27;
+  color: #f3f4f6;
+}
+
+/* Keyboard shortcut badge */
+kbd {
+  font-family: inherit;
+  font-size: 0.7rem;
+  line-height: 1;
+}
