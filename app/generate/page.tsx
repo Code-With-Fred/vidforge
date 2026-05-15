@@ -585,6 +585,20 @@ function GenerateContent() {
             onChange={(e) => setVideo((v) => ({ ...v, script: e.target.value }))}
           />
 
+          {/* Voice selector — pick before generating */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-medium text-gray-500 whitespace-nowrap">Voice</label>
+            <select
+              value={selectedVoice}
+              onChange={(e) => setSelectedVoice(e.target.value)}
+              className={`${INPUT} flex-1`}
+            >
+              {VOICES.map((v) => (
+                <option key={v.value} value={v.value}>{v.label} — {v.meta}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex gap-2">
             <button
               onClick={handleRegenerateScript}

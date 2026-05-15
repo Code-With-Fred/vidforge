@@ -34,6 +34,12 @@ const VideoSchema = new Schema<IVideo>({
   created_at: { type: Date, default: Date.now },
 });
 
+// Add indexes for frequently queried fields
+VideoSchema.index({ created_at: -1 });
+VideoSchema.index({ status: 1 });
+VideoSchema.index({ youtube_url: 1 });
+VideoSchema.index({ status: 1, created_at: -1 }); // Compound index for dashboard queries
+
 const Video: Model<IVideo> =
   mongoose.models.Video || mongoose.model<IVideo>('Video', VideoSchema);
 

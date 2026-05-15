@@ -1,70 +1,55 @@
 import { NextResponse } from 'next/server';
+import { fetchHackerNewsTopics, fetchNewsAPITopics } from '@/lib/externalApis';
+import { logger } from '@/lib/logger';
 
-const AI_KEYWORDS = [
-  'AI', 'GPT', 'LLM', 'model', 'OpenAI', 'Anthropic', 'Google', 'Claude',
-  'Gemini', 'artificial intelligence', 'machine learning', 'automation',
-  'robot', 'neural', 'deepmind', 'mistral', 'llama', 'diffusion',
-];
-
-function isAIRelated(title: string): boolean {
-  const lower = title.toLowerCase();
-  return AI_KEYWORDS.some((kw) => lower.includes(kw.toLowerCase()));
-}
-
-async function fetchHackerNews(): Promise<string[]> {
-  // Top story IDs
-  const idsRes = await fetch(
-    'https://hacker-news.firebaseio.com/v0/topstories.json',
-    { next: { revalidate: 0 } }
-  );
-  const ids: number[] = await idsRes.json();
-
-  // Fetch first 30 stories in parallel
-  const stories = await Promise.all(
-    ids.slice(0, 30).map((id) =>
-      fetch(`https://hacker-news.firebaseio.com/v0/item/${id}.json`)
-        .then((r) => r.json())
-        .catch(() => null)
-    )
-  );
-
-  return stories
-    .filter((s) => s && s.title && isAIRelated(s.title))
-    .map((s) => s.title as string);
-}
-
-async function fetchTechCrunch(): Promise<string[]> {
-  const res = await fetch('https://techcrunch.com/feed/', {
-    headers: { 'User-Agent': 'VidForge/1.0' },
-    next: { revalidate: 0 },
-  });
-  const xml = await res.text();
-
-  // Simple regex extraction — avoids importing xml2js in a route
-  const titles = Array.from(xml.matchAll(/<title><!\[CDATA\[([^\]]+)\]\]><\/title>/g))
-    .map((m) => m[1])
-    .filter(isAIRelated);
-
-  return titles;
-}
-
-export async function POST() {
+export async function POST(): Promise<NextResponse> {
   try {
-    const [hn, tc] = await Promise.allSettled([
-      fetchHackerNews(),
-      fetchTechCrunch(),
+    logger.info('Fetching trending topics', 'TRENDING_API');
+
+    const [hnTopics, newsTopics] = await Promise.allSettled([
+      fetchHackerNewsTopics(5),
+      fetchNewsAPITopics(process.env.NEWS_API_KEY || '', 5),
     ]);
 
-    const hnTopics = hn.status === 'fulfilled' ? hn.value : [];
-    const tcTopics = tc.status === 'fulfilled' ? tc.value : [];
+    const hnList = hnTopics.status === 'fulfilled' ? hnTopics.value : [];
+    const newsList = newsTopics.status === 'fulfilled' ? newsTopics.value : [];
 
-    // Merge, deduplicate, take top 5
-    const all = Array.from(new Set([...hnTopics, ...tcTopics]));
-    const topics = all.slice(0, 5);
+    // Merge and deduplicate
+    const allTopics = Array.from(new Set([...hnList, ...newsList]));
+    const topics = allTopics.slice(0, 5);
 
     if (topics.length === 0) {
+      logger.warn('No trending topics fetched, using fallbacks', 'TRENDING_API');
       // Sensible fallback so the UI always gets suggestions
       return NextResponse.json({
+        success: true,
+        data: {
+          topics: [
+            'How AI is transforming software development in 2024',
+            'The rise of open-source LLMs vs proprietary models',
+            'AI agents: are they finally ready for production?',
+            'How Google Gemini competes with GPT-4',
+            'The future of AI-generated content and copyright',
+          ],
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    logger.info('Trending topics fetched', 'TRENDING_API', { count: topics.length });
+
+    return NextResponse.json({
+      success: true,
+      data: { topics },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('Failed to fetch trending topics', 'TRENDING_API', error);
+
+    // Return fallback topics on error
+    return NextResponse.json({
+      success: true,
+      data: {
         topics: [
           'How AI is transforming software development in 2024',
           'The rise of open-source LLMs vs proprietary models',
@@ -72,12 +57,8 @@ export async function POST() {
           'How Google Gemini competes with GPT-4',
           'The future of AI-generated content and copyright',
         ],
-      });
-    }
-
-    return NextResponse.json({ topics });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+      },
+      timestamp: new Date().toISOString(),
+    });
   }
 }

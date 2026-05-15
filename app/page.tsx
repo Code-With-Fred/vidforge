@@ -17,11 +17,12 @@ interface Stats {
   total: number;
   posted: number;
   draft: number;
+  rendering: number;
 }
 
 export default function DashboardPage() {
   const [videos, setVideos] = useState<Video[]>([]);
-  const [stats, setStats] = useState<Stats>({ total: 0, posted: 0, draft: 0 });
+  const [stats, setStats] = useState<Stats>({ total: 0, posted: 0, draft: 0, rendering: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -42,6 +43,7 @@ export default function DashboardPage() {
         total: vids.length,
         posted: vids.filter((v) => v.status === 'posted').length,
         draft: vids.filter((v) => v.status === 'draft').length,
+        rendering: vids.filter((v) => v.status === 'rendering').length,
       });
     } catch (e) {
       setError((e as Error).message);
@@ -104,10 +106,11 @@ export default function DashboardPage() {
       )}
 
       {/* Stats row */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <StatCard label="Total Videos" value={stats.total} loading={loading} />
         <StatCard label="Posted" value={stats.posted} color="text-brand-400" loading={loading} />
-        <StatCard label="Drafts" value={stats.draft} color="text-yellow-400" loading={loading} />
+        <StatCard label="Rendering" value={stats.rendering} color="text-yellow-400" loading={loading} />
+        <StatCard label="Drafts" value={stats.draft} loading={loading} />
       </div>
 
       {/* Video grid */}

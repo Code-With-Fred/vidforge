@@ -5,6 +5,7 @@ import NavBar from '@/components/NavBar';
 export const metadata: Metadata = {
   title: 'VidForge — AI Video Generator',
   description: 'Personal AI YouTube video generator',
+  icons: { icon: '/favicon.svg' },
 };
 
 export default function RootLayout({

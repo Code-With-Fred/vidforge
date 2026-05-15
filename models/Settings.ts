@@ -20,6 +20,10 @@ const SettingsSchema = new Schema<ISettings>({
   updated_at: { type: Date, default: Date.now },
 });
 
+// Add indexes for faster queries
+SettingsSchema.index({ updated_at: -1 });
+SettingsSchema.index({ youtube_connected: 1 });
+
 const Settings: Model<ISettings> =
   mongoose.models.Settings ||
   mongoose.model<ISettings>('Settings', SettingsSchema);

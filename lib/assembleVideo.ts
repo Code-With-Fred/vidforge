@@ -1,9 +1,27 @@
 import { spawn, spawnSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 
 // Emit a line to the SSE stream
 type Emitter = (line: string) => void;
+
+/**
+ * Get system font path for cross-platform compatibility
+ */
+function getSystemFontPath(): string {
+  const platform = os.platform();
+  
+  if (platform === 'win32') {
+    return path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts', 'arial.ttf');
+  } else if (platform === 'darwin') {
+    // macOS
+    return '/Library/Fonts/Arial.ttf';
+  } else {
+    // Linux
+    return '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+  }
+}
 
 // Run a command and stream stderr line-by-line to emitter
 function runStreaming(
@@ -49,13 +67,21 @@ function runSync(cmd: string, args: string[]): string {
 
 // Get duration of a media file in seconds using ffprobe
 function getMediaDuration(filePath: string): number {
-  const output = runSync('ffprobe', [
-    '-v', 'error',
-    '-show_entries', 'format=duration',
-    '-of', 'default=noprint_wrappers=1:nokey=1',
-    filePath,
-  ]);
-  return parseFloat(output) || 0;
+  try {
+    const output = runSync('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'default=noprint_wrappers=1:nokey=1',
+      filePath,
+    ]);
+    const duration = parseFloat(output);
+    if (isNaN(duration) || duration <= 0) {
+      throw new Error(`Invalid duration: ${output}`);
+    }
+    return duration;
+  } catch (error) {
+    throw new Error(`Failed to get media duration for ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 // Generate a silent black video card with text overlay
@@ -66,6 +92,9 @@ async function makeCard(
   emit: Emitter
 ): Promise<void> {
   emit(`[VidForge] Generating card: "${text}" (${duration}s)`);
+  
+  const fontPath = getSystemFontPath();
+  
   await runStreaming('ffmpeg', [
     '-y',
     // Create black video source
@@ -73,7 +102,7 @@ async function makeCard(
     // Add silent audio
     '-f', 'lavfi', '-i', `anullsrc=r=44100:cl=stereo:d=${duration}`,
     // Draw white centered bold text
-    '-vf', `drawtext=text='${text}':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2:fontfile=/Windows/Fonts/arialbd.ttf`,
+    '-vf', `drawtext=text='${text}':fontcolor=white:fontsize=72:x=(w-text_w)/2:y=(h-text_h)/2:fontfile='${fontPath}'`,
     '-c:v', 'libx264',   // H.264 video codec
     '-c:a', 'aac',       // AAC audio codec
     '-t', String(duration),

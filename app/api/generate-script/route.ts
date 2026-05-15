@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const OLLAMA_BASE = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
+import { callOllama } from '@/lib/externalApis';
+import { successResponse, errorResponse, ApiError, ErrorCode } from '@/lib/apiResponse';
+import { withErrorHandling } from '@/lib/middleware';
+import { validateTopic } from '@/lib/validation';
+import { logger } from '@/lib/logger';
 
 function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -14,18 +17,14 @@ function estimateDuration(wordCount: number): string {
   return `${mins}m ${secs}s`;
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const { topic, model = 'llama3' } = await req.json() as {
-      topic: string;
-      model?: string;
-    };
+export const POST = withErrorHandling(async (req: NextRequest) => {
+  const body = await req.json() as { topic?: string; model?: string };
 
-    if (!topic?.trim()) {
-      return NextResponse.json({ error: 'topic is required' }, { status: 400 });
-    }
+  // Validate topic
+  const topic = validateTopic(body.topic);
+  const model = body.model || 'llama3';
 
-    const prompt = `You are an expert YouTube scriptwriter specializing in AI and technology content.
+  const prompt = `You are an expert YouTube scriptwriter specializing in AI and technology content.
 
 Write a complete YouTube script for a video about: "${topic}"
 
@@ -64,36 +63,13 @@ IMPORTANT RULES:
 - Just write the words that will be spoken aloud
 - Each section header (## SECTION X: Title) should be on its own line`;
 
-    const ollamaRes = await fetch(`${OLLAMA_BASE}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.8,
-          num_predict: 2000,
-        },
-      }),
-    });
+  logger.info('Generating script', 'GENERATE_SCRIPT', { topic, model });
 
-    if (!ollamaRes.ok) {
-      const text = await ollamaRes.text();
-      return NextResponse.json(
-        { error: `Ollama error: ${text}` },
-        { status: 502 }
-      );
-    }
+  const script = await callOllama(prompt, model);
+  const wordCount = countWords(script);
+  const estimatedDuration = estimateDuration(wordCount);
 
-    const data = await ollamaRes.json() as { response: string };
-    const script = data.response.trim();
-    const wordCount = countWords(script);
-    const estimatedDuration = estimateDuration(wordCount);
+  logger.info('Script generated successfully', 'GENERATE_SCRIPT', { wordCount, estimatedDuration });
 
-    return NextResponse.json({ script, wordCount, estimatedDuration });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
-  }
-}
+  return successResponse({ script, wordCount, estimatedDuration });
+}, 'POST /api/generate-script');

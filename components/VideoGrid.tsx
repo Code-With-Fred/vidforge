@@ -18,14 +18,29 @@ interface Props {
   onRefresh?: () => void;
 }
 
+type Filter = 'all' | 'draft' | 'rendering' | 'ready' | 'posted';
+
+const FILTER_TABS: { value: Filter; label: string }[] = [
+  { value: 'all',       label: 'All' },
+  { value: 'draft',     label: 'Draft' },
+  { value: 'rendering', label: 'Rendering' },
+  { value: 'ready',     label: 'Ready' },
+  { value: 'posted',    label: 'Posted' },
+];
+
 export default function VideoGrid({ initialVideos, onRefresh }: Props) {
   const [videos, setVideos] = useState<Video[]>(initialVideos);
+  const [filter, setFilter] = useState<Filter>('all');
 
   const handleDelete = (id: string) => {
     setVideos((prev) => prev.filter((v) => v._id !== id));
     onRefresh?.();
   };
 
+  const filteredVideos =
+    filter === 'all' ? videos : videos.filter((v) => v.status === filter);
+
+  // Full empty state — no videos at all
   if (videos.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -62,10 +77,50 @@ export default function VideoGrid({ initialVideos, onRefresh }: Props) {
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-      {videos.map((video) => (
-        <VideoCard key={video._id} video={video} onDelete={handleDelete} />
-      ))}
+    <div className="space-y-4">
+      {/* Filter tabs */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {FILTER_TABS.map((tab) => {
+          const count =
+            tab.value === 'all'
+              ? videos.length
+              : videos.filter((v) => v.status === tab.value).length;
+          const isActive = filter === tab.value;
+          return (
+            <button
+              key={tab.value}
+              onClick={() => setFilter(tab.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                isActive
+                  ? 'bg-brand-500 text-white'
+                  : 'bg-dark-700 text-gray-400 hover:text-gray-200 hover:bg-dark-600'
+              }`}
+            >
+              {tab.label}
+              <span
+                className={`ml-1.5 tabular-nums ${
+                  isActive ? 'text-brand-200' : 'text-gray-600'
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Filtered empty state */}
+      {filteredVideos.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <p className="text-gray-500 text-sm">No {filter} videos</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredVideos.map((video) => (
+            <VideoCard key={video._id} video={video} onDelete={handleDelete} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

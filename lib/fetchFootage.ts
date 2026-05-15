@@ -2,39 +2,53 @@ import path from 'path';
 import fs from 'fs';
 import https from 'https';
 import http from 'http';
+import { logger } from './logger';
+import { fetchPexelsVideos } from './externalApis';
 
-const PEXELS_BASE = 'https://api.pexels.com/videos';
+const RETRY_ATTEMPTS = 2;
 
-interface PexelsVideoFile {
-  link: string;
-  quality: string;
-  file_type: string;
-  width: number;
-  height: number;
-}
-
-interface PexelsVideo {
-  id: number;
-  video_files: PexelsVideoFile[];
-}
-
-interface PexelsResponse {
-  videos: PexelsVideo[];
-}
-
-// Download a file from URL to destination path
-function downloadFile(url: string, dest: string): Promise<void> {
+// Download a file from URL to destination path with timeout
+function downloadFile(url: string, dest: string, timeoutMs = 30000): Promise<void> {
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith('https') ? https : http;
     const file = fs.createWriteStream(dest);
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    const onTimeout = () => {
+      file.destroy();
+      fs.unlink(dest, () => {});
+      reject(new Error('Download timeout'));
+    };
+
+    timeoutId = setTimeout(onTimeout, timeoutMs);
+
     protocol
       .get(url, (res) => {
+        // Check for redirect or error status
+        if (res.statusCode && res.statusCode >= 400) {
+          file.destroy();
+          fs.unlink(dest, () => {});
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+
         res.pipe(file);
-        file.on('finish', () => file.close(() => resolve()));
+        file.on('finish', () => {
+          if (timeoutId) clearTimeout(timeoutId);
+          file.close(() => resolve());
+        });
       })
       .on('error', (err) => {
-        fs.unlink(dest, () => {}); // clean up partial file
+        if (timeoutId) clearTimeout(timeoutId);
+        file.destroy();
+        fs.unlink(dest, () => {});
         reject(err);
+      })
+      .on('timeout', () => {
+        if (timeoutId) clearTimeout(timeoutId);
+        file.destroy();
+        fs.unlink(dest, () => {});
+        reject(new Error('Connection timeout'));
       });
   });
 }
@@ -46,35 +60,41 @@ async function fetchClipForKeyword(
   outputDir: string,
   index: number
 ): Promise<string | null> {
-  const url = `${PEXELS_BASE}/search?query=${encodeURIComponent(keyword)}&per_page=5&orientation=landscape`;
+  for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
+    try {
+      const videos = await fetchPexelsVideos(keyword, apiKey, 5);
 
-  const res = await fetch(url, {
-    headers: { Authorization: apiKey },
-  });
+      if (videos.length === 0) {
+        logger.warn(`No videos found for keyword: ${keyword}`, 'FETCH_FOOTAGE');
+        return null;
+      }
 
-  if (!res.ok) {
-    console.error(`Pexels API error for "${keyword}": ${res.status}`);
-    return null;
+      const video = videos[0];
+      if (!video.link) {
+        logger.warn(`Invalid video link for ${keyword}`, 'FETCH_FOOTAGE');
+        return null;
+      }
+
+      const filename = `clip_${index}_${Date.now()}.mp4`;
+      const dest = path.join(outputDir, filename);
+
+      await downloadFile(video.link, dest, 60000);
+      logger.info(`Downloaded clip: ${filename}`, 'FETCH_FOOTAGE');
+      return dest;
+    } catch (error) {
+      logger.warn(
+        `Attempt ${attempt + 1}/${RETRY_ATTEMPTS} failed for keyword "${keyword}"`,
+        'FETCH_FOOTAGE',
+        error
+      );
+
+      if (attempt < RETRY_ATTEMPTS - 1) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
   }
 
-  const data = (await res.json()) as PexelsResponse;
-  if (!data.videos || data.videos.length === 0) return null;
-
-  const video = data.videos[0];
-
-  // Prefer HD (1920x1080) mp4, fallback to any mp4
-  const file =
-    video.video_files.find(
-      (f) => f.file_type === 'video/mp4' && f.quality === 'hd'
-    ) ?? video.video_files.find((f) => f.file_type === 'video/mp4');
-
-  if (!file) return null;
-
-  const filename = `clip_${index}_${video.id}.mp4`;
-  const dest = path.join(outputDir, filename);
-
-  await downloadFile(file.link, dest);
-  return dest;
+  return null;
 }
 
 export async function fetchFootageClips(
@@ -83,16 +103,26 @@ export async function fetchFootageClips(
   videoId: string
 ): Promise<string[]> {
   const outputDir = path.join(process.cwd(), 'output', 'footage', videoId);
-  fs.mkdirSync(outputDir, { recursive: true });
+  
+  try {
+    fs.mkdirSync(outputDir, { recursive: true });
+  } catch (error) {
+    logger.error('Failed to create footage directory', 'FETCH_FOOTAGE', error);
+    throw error;
+  }
 
   const clips: string[] = [];
 
+  // Fetch clips sequentially to avoid rate limiting
   for (let i = 0; i < keywords.length; i++) {
     try {
       const clip = await fetchClipForKeyword(keywords[i], apiKey, outputDir, i);
-      if (clip) clips.push(clip);
-    } catch (err) {
-      console.error(`Failed to fetch clip for "${keywords[i]}":`, err);
+      if (clip) {
+        clips.push(clip);
+      }
+    } catch (error) {
+      logger.error(`Failed to fetch clip for "${keywords[i]}"`, 'FETCH_FOOTAGE', error);
+      // Continue with next keyword instead of failing
     }
   }
 
